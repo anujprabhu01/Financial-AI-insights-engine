@@ -81,6 +81,17 @@ export const StockChart: React.FC<StockChartProps> = ({ symbol, companyName, isI
         };
     }, [symbol, eventDatesKey]);
 
+    // When 1D shows a prior session (weekend / holiday), surface the date.
+    const priorSessionLabel = (() => {
+        if (timeframe !== '1D' || data.length === 0) return null;
+        const sessionDate = data[0].time.slice(0, 10); // "YYYY-MM-DD"
+        const today = new Date().toISOString().slice(0, 10);
+        if (sessionDate === today) return null;
+        // Parse at noon to dodge local-timezone date-shift issues
+        const d = new Date(`${sessionDate}T12:00:00`);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    })();
+
     const isPositive = data.length > 0 && (data[data.length - 1].close >= data[0].open);
     const lineColor = isPositive ? '#00c805' : '#ff5000';
 
@@ -180,6 +191,11 @@ export const StockChart: React.FC<StockChartProps> = ({ symbol, companyName, isI
                             {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}&nbsp;
                             ({percentChange >= 0 ? '+' : ''}{percentChange.toFixed(2)}%)&nbsp;
                             <span className="text-text-secondary font-normal">{timeframe}</span>
+                        </div>
+                    )}
+                    {priorSessionLabel && (
+                        <div className="text-xs text-text-secondary mt-1">
+                            Market closed &mdash; last session: {priorSessionLabel}
                         </div>
                     )}
                 </div>

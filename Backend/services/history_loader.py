@@ -25,7 +25,14 @@ def load_chart_history_records(symbol: str, timeframe: str) -> list[dict[str, An
             if not df.empty and "datetime" in df.columns:
                 df["dt"] = pd.to_datetime(df["datetime"])
                 cutoff = datetime.now() - timedelta(hours=24)
-                df = df[df["dt"] >= cutoff]
+                today_df = df[df["dt"] >= cutoff]
+                if not today_df.empty:
+                    df = today_df
+                else:
+                    # Market closed today (weekend/holiday) — show last trading session
+                    df["date_only"] = df["dt"].dt.date
+                    last_date = df["date_only"].max()
+                    df = df[df["date_only"] == last_date] if pd.notna(last_date) else today_df
 
         elif timeframe == "5D":
             df = manager.get_stock_data(symbol, "1h")

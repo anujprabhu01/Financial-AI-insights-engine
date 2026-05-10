@@ -6,11 +6,22 @@ import re
 from newspaper import Article
 import nltk
 
-# Download necessary NLTK data
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
+_nltk_ready = False
+
+def _ensure_nltk():
+    """Lazily download NLTK 'punkt' tokenizer data on first use.
+
+    Avoids the import-time network call which would hang or fail in
+    serverless / read-only filesystem environments.
+    """
+    global _nltk_ready
+    if _nltk_ready:
+        return
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        nltk.download('punkt')
+    _nltk_ready = True
 
 from services.ai100_client import analyze_text
 from services.embeddings import get_embedding
@@ -42,10 +53,16 @@ class NewsProcessor:
             try:
                 # Check for articles from yesterday onwards (last ~24-48h window)
                 fresh_news = self.supabase.get_recent_articles(ticker, limit=5, from_date=yesterday_date)
-                if fresh_news and len(fresh_news) >= 5:
-                    # Only return cache if we have the full 5 articles
+                if fresh_news and len(fresh_news) >= 1:
                     print(f"Fresh Cache HIT for ticker {ticker}: Found {len(fresh_news)} recent articles.")
                     return fresh_news
+                # Broader fallback: any cached articles from the last 7 days.
+                # Prevents Render request timeout when 24h cache misses but older articles exist.
+                week_ago = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
+                cached_news = self.supabase.get_recent_articles(ticker, limit=5, from_date=week_ago)
+                if cached_news:
+                    print(f"7-day Cache HIT for ticker {ticker}: Found {len(cached_news)} articles.")
+                    return cached_news
             except Exception as e:
                 print(f"Error checking DB fresh cache: {e}")
         else:
@@ -232,6 +249,7 @@ class NewsProcessor:
         """
         Uses newspaper3k to scrape article text.
         """
+        _ensure_nltk()
         try:
             # Set a timeout for download
             from newspaper import Config

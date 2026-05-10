@@ -1,5 +1,6 @@
 from twelvedata import TDClient
 from database import save_bars_1d, save_bars_1m, fetch_history, get_latest_timestamp
+import logging
 import pandas as pd
 import os
 from dotenv import load_dotenv
@@ -7,6 +8,8 @@ from datetime import datetime, timedelta
 import pytz
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
+log = logging.getLogger(__name__)
 
 API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 
@@ -28,7 +31,7 @@ _last_failed_attempt = {}
 class DataManager:
     def __init__(self):
         if not API_KEY:
-             print("Warning: API_KEY not found in .env")
+            log.warning("TWELVE_DATA_API_KEY not found in environment")
         self.td = TDClient(apikey=API_KEY)
 
     def get_stock_data(self, symbol: str, timeframe: str):
@@ -50,8 +53,8 @@ class DataManager:
         # 0. Check if we recently failed due to rate limit
         last_fail = _last_failed_attempt.get((symbol, interval))
         if last_fail and (datetime.now() - last_fail).total_seconds() < 60:
-             print(f"  [SKIPPED] Fetch for {symbol} skipped due to recent API limit failure.")
-             return fetch_history(symbol, table_name)
+            log.debug("[SKIPPED] Fetch for %s skipped — recent API limit failure", symbol)
+            return fetch_history(symbol, table_name)
 
         # 1. Check local DB for latest data
         latest_ts = get_latest_timestamp(symbol, table_name)
@@ -86,7 +89,7 @@ class DataManager:
                     start_date = latest_ts # Increment logic handled by API start_date usually inclusive? 
                     # TwelveData start_date is inclusive. We can just ask for latest.
                 else:
-                    print(f"  [OPEN] Data fresh ({int(diff_seconds)}s old). Cache HIT.")
+                    log.debug("[OPEN] %s %s fresh (%ds old) — cache HIT", symbol, interval, int(diff_seconds))
             else:
                 # Market CLOSED: Check if we have the last close
                 # Last market close is usually today 16:00 or yesterday 16:00
@@ -107,14 +110,14 @@ class DataManager:
                 # Use 2-min tolerance: 1-min bars end at 3:59 PM, not 4:00 PM
                 staleness_tolerance = timedelta(minutes=2)
                 if last_dt < (last_market_close - staleness_tolerance):
-                    print(f"  [CLOSED] Data stale (Last: {last_dt}, Market Close: {last_market_close}). Fetching...")
+                    log.info("[CLOSED] %s %s stale (last: %s, close: %s) — fetching", symbol, interval, last_dt, last_market_close)
                     fetch_needed = True
                     start_date = latest_ts
                 else:
-                    print(f"  [CLOSED] Data complete (Last: {last_dt} ~= Close: {last_market_close}). Cache HIT.")
+                    log.debug("[CLOSED] %s %s complete — cache HIT", symbol, interval)
 
         if fetch_needed:
-            print(f"Fetching {symbol} {interval} from {start_date}...")
+            log.info("Fetching %s %s from %s", symbol, interval, start_date)
             try:
                 params = {
                     "symbol": symbol,
@@ -142,7 +145,7 @@ class DataManager:
                      if (symbol, interval) in _last_failed_attempt:
                          del _last_failed_attempt[(symbol, interval)]
             except Exception as e:
-                print(f"Error fetching data: {e}")
+                log.error("Error fetching %s %s: %s", symbol, interval, e)
                 if "API credits" in str(e):
                     _last_failed_attempt[(symbol, interval)] = datetime.now()
         
